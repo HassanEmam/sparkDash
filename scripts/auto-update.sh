@@ -31,11 +31,12 @@ MODE="${1:-}"
 UI_TRIGGERED=false
 [ "${2:-}" = "--ui" ] && UI_TRIGGERED=true
 
-# Read a string key from config/settings.json (empty when missing).
+# Read a string key from config/settings.json (empty when missing; bools → "true"/"false").
 setting_str() { python3 -c "
 import json,sys
 try:
-    print(json.load(open('$SETTINGS')).get('$1','') or '')
+    v = json.load(open('$SETTINGS')).get('$1','')
+    print(str(v).lower() if isinstance(v, bool) else (v or ''))
 except Exception:
     print('')
 " 2>/dev/null; }
