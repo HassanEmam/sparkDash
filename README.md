@@ -44,6 +44,7 @@ Monitored units run **Linux**, **macOS**, or **Windows** (a Windows PC with an N
 - [Glance integration](#glance-integration)
 - [Quality bench](#quality-bench)
 - [Prometheus](#prometheus)
+- [Self-update](#self-update)
 - [RoCE / RDMA monitoring](#roce--rdma-monitoring)
 - [Windows PCs](#windows-pcs)
 - [Full changelog](./CHANGELOG.md)
@@ -132,6 +133,7 @@ Full history: [CHANGELOG.md](./CHANGELOG.md)
 | **RoCE / RDMA** | Per-port link state and rate, traffic, drops, PFC and QoS (trust mode, DSCP), and RDMA counters, read from sysfs / ethtool / `mlnx_qos` on the Spark (see [RoCE / RDMA monitoring](#roce--rdma-monitoring)) |
 | **Windows PCs** | A Windows PC with an NVIDIA GPU is a first-class unit over the built-in OpenSSH server; an AMD-iGPU Windows host (Strix Halo) works too — its GPU usage comes from Windows' GPU engine counters (see [Windows PCs](#windows-pcs)) |
 | **Mobile + PWA** | A phone layout with a docked tab bar (Overview, Sparks, Stats, Settings); installable to the home screen over HTTPS (see [Mobile PWA](#mobile-pwa-install-on-a-phone)) |
+| **Self-update** | Checks the upstream repo every 15 minutes; **Settings → Automatic updates** applies new versions on its own, or off (default) the dashboard shows an accept/reject banner per version (see [Self-update](#self-update)) |
 | **Time zone** | **Settings → Time zone** sets hour and day boundaries and labels on the Tokens, Energy and Activity charts, whatever device you view them on |
 | **Prometheus** | Opt-in `GET /metrics` export (see [Prometheus](#prometheus)) |
 | **Restart from the UI** | When the fleet changes and Energy needs a restart, a **Restart sparkDash** button restarts the Docker container (only offered when it can) |
@@ -529,6 +531,25 @@ sparkDash only needs the engine's HTTP port; it does not care how the engine was
 - The dashboard container uses `network_mode: host`, so a port published on the unit's loopback or LAN address is reachable as `127.0.0.1` (this unit) or its LAN IP (a remote unit). Benchmarks on a remote unit whose server only listens on loopback fall back to an SSH tunnel.
 - A Docker-based start script that detaches (`docker run -d`) shows **Stopped** in the Models panel because the script's process group is gone, while the port probe shows **Serving**. Treat the port status as the source of truth (the **Output** button re-opens the script's output while it runs).
 - Provisioning models (pulling weights, choosing a recipe) stays with your own tool; the Models panel only runs the `start.sh` / `stop.sh` you register.
+
+## Self-update
+
+sparkDash can keep itself current with the upstream project. A small host-side
+script (`scripts/auto-update.sh`, run from cron every 15 minutes) checks the
+upstream repo and reports through `config/auto-update-status.json`; the
+dashboard reads that and offers the update.
+
+- **Settings → Automatic updates** (default **off**): when on, new versions are
+  applied automatically — dependencies installed, frontend rebuilt, container
+  restarted, and a health check before it's called done. If anything fails the
+  running version is left untouched and the failure is reported.
+- When the setting is **off** (default), a banner appears in the dashboard when
+  a new version is published: **Update now** applies it immediately, **✕**
+  ("Later") skips that version — a newer one prompts again.
+- Updates are fail-safe by design: the container is only restarted after a
+  successful build, and a conflicting upstream change never touches a running
+  deployment.
+
 
 ## Quick start
 
