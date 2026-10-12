@@ -599,8 +599,12 @@ export interface AppUpdateStatus {
   updateAvailable: boolean;
   behind: number;
   localAhead: number;
+  /** Running version (package.json). */
   current: string;
+  /** Latest published release version. */
   latest: string;
+  latestTag: string;
+  currentSha: string;
   updating: boolean;
   phase: string;
   lastResult: { ok: boolean; at: number; error: string } | null;

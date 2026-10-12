@@ -140,7 +140,7 @@ export function UpdateBanner() {
               New version available
             </span>
             <span className="block text-xs" style={{ color: "var(--color-muted)" }}>
-              {status.behind} commit{status.behind === 1 ? "" : "s"} behind upstream. Update the dashboard now?
+              Version {status.latest} is available (you have {status.current}). Update the dashboard now?
             </span>
           </div>
           <button

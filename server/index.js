@@ -770,8 +770,8 @@ app.post("/api/app/update/apply", (_req, res) => {
 app.post("/api/app/update/dismiss", (req, res) => {
   const view = updateView();
   if (!view.latest) return res.status(400).json({ error: "No update version to dismiss" });
-  const newSettings = updateSettings({ updateDismissedSha: view.latest });
-  res.json({ ok: true, updateDismissedSha: newSettings.updateDismissedSha });
+  const newSettings = updateSettings({ updateDismissedVersion: view.latest });
+  res.json({ ok: true, updateDismissedVersion: newSettings.updateDismissedVersion });
 });
 
 // Recent GPU utilization / temperature / power % for one Spark (parallel arrays), newest last.

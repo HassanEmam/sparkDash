@@ -8,17 +8,21 @@ describe("appupdate status parsing", () => {
       hostRepo: "/repo",
       checkedAt: 1000,
       updateAvailable: true,
-      behind: 3,
+      behind: 1,
       localAhead: 1,
-      current: "aaa",
-      latest: "bbb",
+      current: "2.40.0",
+      latest: "2.41.0",
+      latestTag: "v2.41.0",
+      currentSha: "aaa",
       updating: false,
       phase: "idle",
       lastResult: { ok: true, at: 5, error: "" },
     });
     assert.equal(s.updateAvailable, true);
-    assert.equal(s.behind, 3);
+    assert.equal(s.behind, 1);
     assert.equal(s.localAhead, 1);
+    assert.equal(s.latestTag, "v2.41.0");
+    assert.equal(s.currentSha, "aaa");
     assert.deepEqual(s.lastResult, { ok: true, at: 5, error: "" });
   });
 
@@ -28,21 +32,23 @@ describe("appupdate status parsing", () => {
     assert.equal(_parseStatus("nope"), null);
     const s = _parseStatus({ behind: "many", lastResult: "x", checkedAt: -5 });
     assert.equal(s.behind, 0);
+    assert.equal(s.latestTag, "");
+    assert.equal(s.currentSha, "");
     assert.equal(s.lastResult, null);
     assert.equal(s.checkedAt, 0);
   });
 });
 
 describe("appupdate prompt/apply decision", () => {
-  it("auto-applies only when enabled, update present, and not dismissed", () => {
-    const st = { updateAvailable: true, latest: "bbb" };
-    assert.equal(shouldAutoApply(st, { autoUpdate: true, updateDismissedSha: "" }), true);
-    assert.equal(shouldAutoApply(st, { autoUpdate: false, updateDismissedSha: "" }), false);
-    // user rejected this exact version
-    assert.equal(shouldAutoApply(st, { autoUpdate: true, updateDismissedSha: "bbb" }), false);
-    // a NEWER version re-prompts even after a rejection
-    assert.equal(shouldAutoApply({ updateAvailable: true, latest: "ccc" }, { autoUpdate: true, updateDismissedSha: "bbb" }), true);
-    assert.equal(shouldAutoApply({ updateAvailable: false, latest: "bbb" }, { autoUpdate: true }), false);
+  it("auto-applies only when enabled, release present, and not dismissed", () => {
+    const st = { updateAvailable: true, latestTag: "v2.41.0" };
+    assert.equal(shouldAutoApply(st, { autoUpdate: true, updateDismissedVersion: "" }), true);
+    assert.equal(shouldAutoApply(st, { autoUpdate: false, updateDismissedVersion: "" }), false);
+    // user rejected this exact release
+    assert.equal(shouldAutoApply(st, { autoUpdate: true, updateDismissedVersion: "v2.41.0" }), false);
+    // a NEWER release re-prompts even after a rejection
+    assert.equal(shouldAutoApply({ updateAvailable: true, latestTag: "v2.42.0" }, { autoUpdate: true, updateDismissedVersion: "v2.41.0" }), true);
+    assert.equal(shouldAutoApply({ updateAvailable: false, latestTag: "v2.41.0" }, { autoUpdate: true }), false);
   });
 
   it("stale when missing, unchecked, or older than the window", () => {

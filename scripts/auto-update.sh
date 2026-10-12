@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# sparkDash self-updater.
+# sparkDash self-updater — RELEASE channel.
 # Runs on the HOST (host cron every 15 min + on demand from the dashboard via
-# server/appupdate.js). Keeps the deployment in step with upstream main and
-# reports state through config/auto-update-status.json, which the app reads.
+# server/appupdate.js). Tracks GitHub releases (tags), NOT main: an update is
+# available when the latest published release tag is NOT already part of the
+# local history. Applying = rebase the local commits onto that release tag,
+# then npm install → build → (image rebuild only if deps changed) → container
+# restart → health check. State flows through config/auto-update-status.json.
 #
 # Modes:
 #   (none)          cron mode: check; auto-apply only when settings.autoUpdate is on
@@ -15,14 +18,15 @@
 set -u
 export PATH="/home/hassan/.local/bin:/usr/local/bin:/usr/bin:/bin"
 
+UPSTREAM_REPO="${SPARKDASH_UPSTREAM_REPO:-MiaAI-Lab/sparkDash}"
+CONTAINER="${SPARKDASH_CONTAINER:-sparkDash}"
+
 # Resolve the repo this script lives in (works from cron and any cwd).
 REPO="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
 LOG="$REPO/auto-update.log"
 STATE="$REPO/config/auto-update-status.json"
 SETTINGS="$REPO/config/settings.json"
-STAMP="$(date +%s)"
 
-CONTAINER="${SPARKDASH_CONTAINER:-sparkDash}"
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
 if [ "${SPARKDASH_UPDATE_NOTIFY:-1}" = "0" ]; then notify() { :; }; else
 notify() { hermes send -t telegram "sparkDash: $*" >/dev/null 2>&1 || true; }; fi
@@ -31,7 +35,7 @@ MODE="${1:-}"
 UI_TRIGGERED=false
 [ "${2:-}" = "--ui" ] && UI_TRIGGERED=true
 
-# Read a string key from config/settings.json (empty when missing; bools → "true"/"false").
+# Read a key from config/settings.json (empty when missing; bools → "true"/"false").
 setting_str() { python3 -c "
 import json,sys
 try:
@@ -48,21 +52,42 @@ flock -n 9 || { log "another update run in progress; exiting"; exit 0; }
 cd "$REPO" || { log "FATAL: repo $REPO missing"; notify "repo missing at $REPO — cannot update"; exit 1; }
 mkdir -p "$(dirname "$STATE")"
 
-# ── Check phase: fetch upstream and count commits ────────────────────────────
-git fetch origin main --quiet || { log "git fetch failed (network?)"; exit 1; }
+current_version() { python3 -c "import json;print(json.load(open('package.json'))['version'])" 2>/dev/null || echo "0"; }
 
-LOCAL="$(git rev-parse HEAD)"
-REMOTE="$(git rev-parse origin/main)"
-BEHIND="$(git rev-list --count HEAD..origin/main)"
-LOCAL_AHEAD="$(git rev-list --count origin/main..HEAD)"
-AUTO_UPDATE="$(setting_str autoUpdate)"
-AUTO_UPDATE=$([ "$AUTO_UPDATE" = "true" ] && echo true || echo false)
+# ── Check phase: find the latest published release and compare ───────────────
+LATEST_TAG="$(gh release view --repo "$UPSTREAM_REPO" --json tagName -q .tagName 2>/dev/null || true)"
+if [ -z "$LATEST_TAG" ]; then
+  LATEST_TAG="$(curl -sf -m 15 "https://api.github.com/repos/$UPSTREAM_REPO/releases/latest" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("tag_name",""))' 2>/dev/null || true)"
+fi
+if [ -z "$LATEST_TAG" ]; then
+  log "could not determine the latest release (network? gh auth?)"
+  exit 1
+fi
 
-# write_status <updating:true|false> <phase> <lastResultJson-or-null>
+# Fetch just that tag (force: tags can be re-pointed on re-release).
+git fetch origin "refs/tags/$LATEST_TAG:refs/tags/$LATEST_TAG" --force --quiet 2>>"$LOG" || { log "git tag fetch failed"; exit 1; }
+
+TAG_COMMIT="$(git rev-parse "$LATEST_TAG^{commit}" 2>>"$LOG")" || { log "cannot resolve $LATEST_TAG"; exit 1; }
+if git merge-base --is-ancestor "$TAG_COMMIT" HEAD 2>/dev/null; then
+  HAVE_LATEST=true
+else
+  HAVE_LATEST=false
+fi
+
+CURRENT_VERSION="$(current_version)"
+LATEST_VERSION="${LATEST_TAG#v}"
+LOCAL_AHEAD="$(git rev-list --count origin/main..HEAD 2>/dev/null || echo 0)"
+HEAD_SHA="$(git rev-parse HEAD)"
+
+# write_status <haveLatest:true|false> <updating:true|false> <phase> <lastResultJson-or-null>
 write_status() {
-  python3 - "$STATE" "$1" "$2" "$3" << 'PYEOF'
+  python3 - "$STATE" "$1" "$2" "$3" "$4" \
+    "$CURRENT_VERSION" "$LATEST_VERSION" "$LATEST_TAG" "$LOCAL_AHEAD" "$HEAD_SHA" << 'PYEOF'
 import json, sys
-state_path, updating, phase, last_result = sys.argv[1], sys.argv[2] == "true", sys.argv[3], json.loads(sys.argv[4])
+(state_path, have_latest, updating, phase, last_result,
+ current_version, latest_version, latest_tag, local_ahead, head_sha) = sys.argv[1:11]
+have_latest, updating = have_latest == "true", updating == "true"
+last_result = json.loads(last_result)
 try:
     st = json.load(open(state_path))
 except Exception:
@@ -70,11 +95,14 @@ except Exception:
 st.update({
     "hostRepo": __import__("os").environ.get("SPARKDASH_HOST_REPO", ""),
     "checkedAt": int(__import__("time").time() * 1000),
-    "updateAvailable": st.get("_behind", 0) > 0,
-    "behind": st.get("_behind", 0),
-    "localAhead": st.get("_localAhead", 0),
-    "current": st.get("_current", ""),
-    "latest": st.get("_latest", ""),
+    "channel": "release",
+    "updateAvailable": not have_latest,
+    "behind": 0 if have_latest else 1,
+    "localAhead": int(local_ahead),
+    "current": current_version,
+    "latest": latest_version,
+    "latestTag": latest_tag,
+    "currentSha": head_sha,
     "updating": updating,
     "phase": phase,
 })
@@ -85,24 +113,7 @@ json.dump(st, open(state_path, "w"))
 PYEOF
 }
 
-# Seed private counts into the state file, then render the public status.
-seed_and_write() { # seed_and_write <updating> <phase> <lastResultJson>
-  python3 - "$STATE" << PYEOF
-import json
-try:
-    st = json.load(open("$STATE"))
-except Exception:
-    st = {}
-st["_behind"] = $BEHIND
-st["_localAhead"] = $LOCAL_AHEAD
-st["_current"] = "$LOCAL"
-st["_latest"] = "$REMOTE"
-json.dump(st, open("$STATE", "w"))
-PYEOF
-  write_status "$1" "$2" "$3"
-}
-
-set_phase() { # set_phase <phase> — keep counts, flip updating
+set_phase() { # set_phase <phase> — keep everything else, flip updating
   python3 - "$STATE" "$1" << 'PYEOF'
 import json, sys
 state_path, phase = sys.argv[1], sys.argv[2]
@@ -116,72 +127,67 @@ except Exception:
 PYEOF
 }
 
-seed_and_write false "idle" "null"
+write_status "$HAVE_LATEST" false "idle" "null"
 
 [ "$MODE" = "--check-json" ] && exit 0
-[ "$BEHIND" = "0" ] && exit 0  # up to date — silent
+[ "$HAVE_LATEST" = "true" ] && exit 0  # latest release already in our history — silent
 
-DISMISSED="$(setting_str updateDismissedSha)"
+DISMISSED="$(setting_str updateDismissedVersion)"
 SHOULD_APPLY=false
 if [ "$MODE" = "--apply" ]; then
   SHOULD_APPLY=true
-elif [ "$AUTO_UPDATE" = "true" ] && [ "$REMOTE" != "$DISMISSED" ]; then
-  SHOULD_APPLY=true  # auto-update enabled and this version wasn't rejected
+elif [ "$(setting_str autoUpdate)" = "true" ] && [ "$LATEST_TAG" != "$DISMISSED" ]; then
+  SHOULD_APPLY=true  # auto-update enabled and this release wasn't rejected
 fi
 [ "$SHOULD_APPLY" = "true" ] || exit 0  # update available but not consented — the app shows the prompt
 
 # ── Apply phase ──────────────────────────────────────────────────────────────
-log "applying update: ${LOCAL:0:7} -> ${REMOTE:0:7} (ui=$UI_TRIGGERED)"
-[ "$UI_TRIGGERED" = "false" ] && notify "a new version of sparkDash was published — updating now, the dashboard may blip for a few seconds…"
+log "applying update: $LATEST_TAG (ui=$UI_TRIGGERED)"
+[ "$UI_TRIGGERED" = "false" ] && notify "a new version of sparkDash was published ($LATEST_VERSION) — updating now, the dashboard may blip for a few seconds…"
 
-recount() { # refresh behind/ahead after the tree moved
-  BEHIND="$(git rev-list --count HEAD..origin/main)"
-  LOCAL_AHEAD="$(git rev-list --count origin/main..HEAD)"
-  LOCAL="$(git rev-parse HEAD)"
-}
-
-seed_and_write true "starting" "null"
+write_status "$HAVE_LATEST" true "starting" "null"
 
 # Clear an interrupted rebase from a previous crashed run.
 git rebase --abort 2>/dev/null || true
 
-if ! git rebase origin/main --quiet 2>>"$LOG"; then
+if ! git rebase "$LATEST_TAG" --quiet 2>>"$LOG"; then
   git rebase --abort 2>/dev/null || true
   log "REBASE CONFLICT — keeping the currently running version"
-  seed_and_write false "failed" '{"ok": false, "error": "The new version conflicts with your local customisations — nothing was changed."}'
-  notify "found a new version but it conflicts with your local customisations, so I left the current version running."
+  write_status "$HAVE_LATEST" false "failed" '{"ok": false, "error": "The new release conflicts with your local customisations — nothing was changed."}'
+  notify "found release $LATEST_VERSION but it conflicts with your local customisations, so I left the current version running."
   exit 1
 fi
 
 NEW="$(git rev-parse HEAD)"
-if [ "$NEW" = "$LOCAL" ]; then
-  recount
-  seed_and_write false "idle" '{"ok": true, "error": ""}'
+if [ "$NEW" = "$HEAD_SHA" ]; then
+  write_status true false "idle" '{"ok": true, "error": ""}'
   exit 0
 fi
-log "rebased onto ${NEW:0:7}; installing dependencies"
+log "rebased onto ${NEW:0:7} ($LATEST_TAG); installing dependencies"
+CURRENT_VERSION="$(current_version)"   # package.json now carries the release's version
+HEAD_SHA="$NEW"
 
 if ! npm install --no-audit --no-fund >>"$LOG" 2>&1; then
   log "npm install FAILED — container NOT restarted, old version still running"
-  seed_and_write false "failed" '{"ok": false, "error": "Dependency install failed — the old version is still running."}'
-  notify "update failed at 'npm install' — the old version is still running untouched."
+  write_status "$HAVE_LATEST" false "failed" '{"ok": false, "error": "Dependency install failed — the old version is still running."}'
+  notify "update to $LATEST_VERSION failed at 'npm install' — the old version is still running untouched."
   exit 1
 fi
 
 set_phase "building"
 if ! npm run build >>"$LOG" 2>&1; then
   log "frontend build FAILED — container NOT restarted, old version still running"
-  seed_and_write false "failed" '{"ok": false, "error": "Frontend build failed — the old version is still running."}'
-  notify "update failed at the build step — the old version is still running untouched."
+  write_status "$HAVE_LATEST" false "failed" '{"ok": false, "error": "Frontend build failed — the old version is still running."}'
+  notify "update to $LATEST_VERSION failed at the build step — the old version is still running untouched."
   exit 1
 fi
 
 # Rebuild the image only when dependencies changed (node_modules live in the
 # image; server code and dist are bind-mounted from the host).
-if git diff --quiet "$LOCAL" "$NEW" -- package.json package-lock.json 2>/dev/null; then
+if git diff --quiet "$HEAD_SHA" "$NEW" -- package.json package-lock.json 2>/dev/null; then
   log "dependencies unchanged — plain restart"
   set_phase "restarting"
-  docker restart "$CONTAINER" >/dev/null || { log "docker restart FAILED"; seed_and_write false "failed" '{"ok": false, "error": "Container restart failed."}'; notify "update applied but the container restart failed — check docker."; exit 1; }
+  docker restart "$CONTAINER" >/dev/null || { log "docker restart FAILED"; write_status "$HAVE_LATEST" false "failed" '{"ok": false, "error": "Container restart failed."}'; notify "update applied but the container restart failed — check docker."; exit 1; }
 else
   log "dependencies changed — rebuilding image (this can take a few minutes)"
   set_phase "rebuilding-image"
@@ -190,7 +196,7 @@ else
   else
     log "image rebuild FAILED — falling back to plain restart with old deps"
     set_phase "restarting"
-    docker restart "$CONTAINER" >/dev/null || { log "docker restart FAILED"; seed_and_write false "failed" '{"ok": false, "error": "Container restart failed."}'; notify "update applied but the container restart failed — check docker."; exit 1; }
+    docker restart "$CONTAINER" >/dev/null || { log "docker restart FAILED"; write_status "$HAVE_LATEST" false "failed" '{"ok": false, "error": "Container restart failed."}'; notify "update applied but the container restart failed — check docker."; exit 1; }
   fi
 fi
 
@@ -207,12 +213,10 @@ done
 
 if [ -n "$HEALTHY" ]; then
   log "update complete and healthy at $URL"
-  recount
-  seed_and_write false "done" '{"ok": true, "error": ""}'
-  [ "$UI_TRIGGERED" = "false" ] && notify "updated to the new version and it's back up and healthy ✅"
+  write_status true false "done" '{"ok": true, "error": ""}'
+  [ "$UI_TRIGGERED" = "false" ] && notify "updated to $LATEST_VERSION and it's back up and healthy ✅"
 else
   log "update applied but health check FAILED at $URL (last code: ${CODE:-none})"
-  recount
-  seed_and_write false "failed" '{"ok": false, "error": "Updated but the health check failed — check docker logs."}'
-  notify "updated but the app didn't come back healthy at $URL — ask Hermes to check the logs."
+  write_status "$HAVE_LATEST" false "failed" '{"ok": false, "error": "Updated but the health check failed — check docker logs."}'
+  notify "updated to $LATEST_VERSION but the app didn't come back healthy at $URL — ask Hermes to check the logs."
 fi

@@ -739,8 +739,8 @@ export interface Settings {
   prometheusExport: boolean;
   /** Apply new upstream releases automatically; off = show an accept/reject banner. */
   autoUpdate: boolean;
-  /** Latest upstream sha rejected via the update banner ("Later"). */
-  updateDismissedSha?: string;
+  /** Latest release version rejected via the update banner ("Later"). */
+  updateDismissedVersion?: string;
 }
 
 export interface SparksListResponse {

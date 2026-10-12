@@ -68,8 +68,8 @@ const DEFAULTS = Object.freeze({
    * When off, the dashboard shows an accept/reject banner instead.
    */
   autoUpdate: false,
-  /** Latest upstream sha the user rejected via the update banner ("Later"). */
-  updateDismissedSha: "",
+  /** Latest release tag the user rejected via the update banner ("Later"). */
+  updateDismissedVersion: "",
 });
 
 const POLL_INTERVAL_MIN_MS = 500;
@@ -137,7 +137,7 @@ function _clampSettings(settings) {
   s.showVramBreakdown = Boolean(s.showVramBreakdown);
   s.prometheusExport = Boolean(s.prometheusExport);
   s.autoUpdate = Boolean(s.autoUpdate);
-  s.updateDismissedSha = typeof s.updateDismissedSha === "string" ? s.updateDismissedSha.slice(0, 40) : "";
+  s.updateDismissedVersion = typeof s.updateDismissedVersion === "string" ? s.updateDismissedVersion.slice(0, 60) : "";
   // Ensure temperatureUnit is valid
   if (s.temperatureUnit !== "celsius" && s.temperatureUnit !== "fahrenheit") {
     s.temperatureUnit = DEFAULTS.temperatureUnit;

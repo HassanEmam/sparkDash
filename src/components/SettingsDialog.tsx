@@ -339,7 +339,7 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
               />
               <ToggleRow
                 title="Automatic updates"
-                help="Apply new versions of sparkDash automatically when they're published. When off, you'll get an update prompt in the dashboard instead and can accept or skip each version."
+                help="Apply new sparkDash releases automatically as soon as they're published. When off, you'll get an update prompt in the dashboard instead and can accept or skip each release."
                 checked={Boolean(settings.autoUpdate)}
                 onChange={(v) => update({ autoUpdate: v })}
               />

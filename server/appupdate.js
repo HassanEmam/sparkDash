@@ -48,6 +48,8 @@ export function _parseStatus(raw) {
     localAhead: num(raw.localAhead) ?? 0,
     current: typeof raw.current === "string" ? raw.current : "",
     latest: typeof raw.latest === "string" ? raw.latest : "",
+    latestTag: typeof raw.latestTag === "string" ? raw.latestTag : "",
+    currentSha: typeof raw.currentSha === "string" ? raw.currentSha : "",
     updating: Boolean(raw.updating),
     phase: typeof raw.phase === "string" ? raw.phase : "",
     lastResult:
@@ -154,7 +156,7 @@ export function updateView() {
     status.updateAvailable &&
     !status.updating &&
     !base.autoUpdate &&
-    status.latest !== settings.updateDismissedSha;
+    status.latestTag !== settings.updateDismissedVersion;
   return {
     ...base,
     updateAvailable: status.updateAvailable,
@@ -162,6 +164,8 @@ export function updateView() {
     localAhead: status.localAhead,
     current: status.current,
     latest: status.latest,
+    latestTag: status.latestTag,
+    currentSha: status.currentSha,
     stale: isStale(status),
     prompt,
   };
@@ -169,5 +173,5 @@ export function updateView() {
 
 /** Decision used by the host script too — keep the semantics in one place. */
 export function shouldAutoApply(status, settings) {
-  return Boolean(status?.updateAvailable && settings?.autoUpdate && status.latest !== settings?.updateDismissedSha);
+  return Boolean(status?.updateAvailable && settings?.autoUpdate && status.latestTag !== settings?.updateDismissedVersion);
 }
