@@ -67,4 +67,4 @@ services:
       - SSH_IDENTITY_FILE=${SSH_IDENTITY_FILE:-}
       # Host path of this repo — lets server/appupdate.js run the self-updater
       # (scripts/auto-update.sh) through the nsenter bridge.
-      - SPARKDASH_HOST_REPO=/home/hassan/sparkDash
+      - SPARKDASH_HOST_REPO=${SPARKDASH_HOST_REPO:-}

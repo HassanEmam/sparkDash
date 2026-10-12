@@ -16,7 +16,7 @@
 # Fail-safe by design: on any problem the running container is left untouched,
 # the failure lands in the status file (and Telegram), and the app shows it.
 set -u
-export PATH="/home/hassan/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 UPSTREAM_REPO="${SPARKDASH_UPSTREAM_REPO:-MiaAI-Lab/sparkDash}"
 CONTAINER="${SPARKDASH_CONTAINER:-sparkDash}"
