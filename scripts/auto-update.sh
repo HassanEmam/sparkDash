@@ -134,6 +134,12 @@ fi
 log "applying update: ${LOCAL:0:7} -> ${REMOTE:0:7} (ui=$UI_TRIGGERED)"
 [ "$UI_TRIGGERED" = "false" ] && notify "a new version of sparkDash was published — updating now, the dashboard may blip for a few seconds…"
 
+recount() { # refresh behind/ahead after the tree moved
+  BEHIND="$(git rev-list --count HEAD..origin/main)"
+  LOCAL_AHEAD="$(git rev-list --count origin/main..HEAD)"
+  LOCAL="$(git rev-parse HEAD)"
+}
+
 seed_and_write true "starting" "null"
 
 # Clear an interrupted rebase from a previous crashed run.
@@ -149,6 +155,7 @@ fi
 
 NEW="$(git rev-parse HEAD)"
 if [ "$NEW" = "$LOCAL" ]; then
+  recount
   seed_and_write false "idle" '{"ok": true, "error": ""}'
   exit 0
 fi
@@ -200,10 +207,12 @@ done
 
 if [ -n "$HEALTHY" ]; then
   log "update complete and healthy at $URL"
+  recount
   seed_and_write false "done" '{"ok": true, "error": ""}'
   [ "$UI_TRIGGERED" = "false" ] && notify "updated to the new version and it's back up and healthy ✅"
 else
   log "update applied but health check FAILED at $URL (last code: ${CODE:-none})"
+  recount
   seed_and_write false "failed" '{"ok": false, "error": "Updated but the health check failed — check docker logs."}'
   notify "updated but the app didn't come back healthy at $URL — ask Hermes to check the logs."
 fi
