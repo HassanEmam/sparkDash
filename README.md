@@ -534,20 +534,23 @@ sparkDash only needs the engine's HTTP port; it does not care how the engine was
 
 ## Self-update
 
-sparkDash can keep itself current with the upstream project. A small host-side
-script (`scripts/auto-update.sh`, run from cron every 15 minutes) checks the
-upstream repo and reports through `config/auto-update-status.json`; the
-dashboard reads that and offers the update.
+sparkDash can keep itself current with the upstream project's **releases**. A
+small host-side script (`scripts/auto-update.sh`, run from cron every 15
+minutes) checks the latest published GitHub release and reports through
+`config/auto-update-status.json`; the dashboard reads that and offers the
+update. Releases whose tag is already part of the local history never prompt —
+commits on `main` between releases are deliberately ignored.
 
-- **Settings → Automatic updates** (default **off**): when on, new versions are
-  applied automatically — dependencies installed, frontend rebuilt, container
-  restarted, and a health check before it's called done. If anything fails the
-  running version is left untouched and the failure is reported.
+- **Settings → Automatic updates** (default **off**): when on, new releases are
+  applied automatically — the local commits are rebased onto the release tag,
+  dependencies installed, frontend rebuilt, container restarted, and a health
+  check before it's called done. If anything fails the running version is left
+  untouched and the failure is reported.
 - When the setting is **off** (default), a banner appears in the dashboard when
-  a new version is published: **Update now** applies it immediately, **✕**
-  ("Later") skips that version — a newer one prompts again.
+  a new release is published: **Update now** applies it immediately, **✕**
+  ("Later") skips that release — a newer one prompts again.
 - Updates are fail-safe by design: the container is only restarted after a
-  successful build, and a conflicting upstream change never touches a running
+  successful build, and a conflicting release never touches a running
   deployment.
 
 
