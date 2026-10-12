@@ -32,12 +32,11 @@ cd "$REPO" || { log "FATAL: repo $REPO missing"; notify "repo missing at $REPO �
 
 git fetch origin main --quiet || { log "git fetch failed (network?)"; exit 1; }
 
-LOCAL="$(git rev-parse HEAD)"
-REMOTE="$(git rev-parse origin/main)"
-if [ "$LOCAL" = "$REMOTE" ]; then
+# Only act when upstream has commits we don't (local commits on top are fine).
+if [ "$(git rev-list --count HEAD..origin/main)" = "0" ]; then
   exit 0  # up to date — silent
 fi
-log "upstream moved: ${LOCAL:0:7} -> ${REMOTE:0:7}"
+log "upstream has new commits (HEAD $(git rev-parse --short HEAD))"
 
 [ "${1:-}" = "--check" ] && { log "check-only: update available"; exit 0; }
 
@@ -52,6 +51,9 @@ if ! git rebase origin/main --quiet 2>>"$LOG"; then
 fi
 
 NEW="$(git rev-parse HEAD)"
+if [ "$NEW" = "$LOCAL" ]; then
+  exit 0  # rebase was a no-op (only local commits) — nothing to deploy
+fi
 log "rebased onto ${NEW:0:7}; installing dependencies"
 
 notify "a new version of sparkDash was published — updating now, the dashboard may blip for a few seconds…"
@@ -70,7 +72,7 @@ fi
 
 # Rebuild the image only when dependencies changed (node_modules live in the
 # image; server code and dist are bind-mounted from the host).
-if git diff --quiet "${NEW}@{1}" "${NEW}" -- package.json package-lock.json 2>/dev/null; then
+if git diff --quiet "$LOCAL" "$NEW" -- package.json package-lock.json 2>/dev/null; then
   log "dependencies unchanged — plain restart"
   docker restart sparkDash >/dev/null || { log "docker restart FAILED"; notify "update applied but the container restart failed — check docker."; exit 1; }
 else
