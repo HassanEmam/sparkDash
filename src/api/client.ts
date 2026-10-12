@@ -593,6 +593,35 @@ export function updateSettings(patch: Partial<Settings>): Promise<Settings> {
   });
 }
 
+// ─── Self-update (host-side updater bridge) ───
+export interface AppUpdateStatus {
+  supported: boolean;
+  updateAvailable: boolean;
+  behind: number;
+  localAhead: number;
+  current: string;
+  latest: string;
+  updating: boolean;
+  phase: string;
+  lastResult: { ok: boolean; at: number; error: string } | null;
+  lastError: string;
+  autoUpdate: boolean;
+  prompt: boolean;
+  stale: boolean;
+}
+
+export function fetchAppUpdate(): Promise<AppUpdateStatus> {
+  return apiFetch("/api/app/update");
+}
+
+export function applyAppUpdate(): Promise<{ started: boolean; already?: boolean }> {
+  return apiFetch("/api/app/update/apply", { method: "POST" });
+}
+
+export function dismissAppUpdate(): Promise<{ ok: boolean }> {
+  return apiFetch("/api/app/update/dismiss", { method: "POST" });
+}
+
 // ─── LLM launchers (register a directory, run its start.sh / stop.sh) ───
 const launchersBase = (sparkId: string) => `/api/sparks/${encodeURIComponent(sparkId)}/llm-launchers`;
 

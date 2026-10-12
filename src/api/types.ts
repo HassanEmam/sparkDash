@@ -737,6 +737,10 @@ export interface Settings {
   showVramBreakdown: boolean;
   /** Serve GET /metrics in Prometheus text format. Off by default (404 when off). */
   prometheusExport: boolean;
+  /** Apply new upstream releases automatically; off = show an accept/reject banner. */
+  autoUpdate: boolean;
+  /** Latest upstream sha rejected via the update banner ("Later"). */
+  updateDismissedSha?: string;
 }
 
 export interface SparksListResponse {

@@ -8,6 +8,7 @@ import { fetchSparks, reorderSparks, fetchSettings, fetchHealth } from "./api/cl
 import { AppSidebar } from "./components/shell/AppSidebar";
 import { MobileTabBar } from "./components/shell/MobileTabBar";
 import { InstallPrompt } from "./components/shell/InstallPrompt";
+import { UpdateBanner } from "./components/shell/UpdateBanner";
 import { CommandPalette, type PaletteCommand } from "./components/shell/CommandPalette";
 import { openShowcase, showcaseTarget } from "./components/shell/sparkSummary";
 import { AddSparkDialog } from "./components/AddSparkDialog";
@@ -604,6 +605,7 @@ function DashboardApp() {
         onOpenSettings={() => setShowSettings(true)}
       />
       <InstallPrompt />
+      <UpdateBanner />
       <CommandPalette open={showPalette} onClose={() => setShowPalette(false)} commands={paletteCommands} />
       <HermesUpdateDialog />
       <AddSparkDialog

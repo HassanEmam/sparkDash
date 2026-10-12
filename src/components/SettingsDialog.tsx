@@ -338,6 +338,12 @@ export function SettingsDialog({ open, onClose, onSaved }: SettingsDialogProps) 
                 onChange={(v) => update({ prometheusExport: v })}
               />
               <ToggleRow
+                title="Automatic updates"
+                help="Apply new versions of sparkDash automatically when they're published. When off, you'll get an update prompt in the dashboard instead and can accept or skip each version."
+                checked={Boolean(settings.autoUpdate)}
+                onChange={(v) => update({ autoUpdate: v })}
+              />
+              <ToggleRow
                 title="Show Fleet Energy"
                 help="Overview card with rolling fleet power estimates. The full Fleet energy page is always available from the sidebar."
                 checked={Boolean(settings.showFleetEnergy)}
