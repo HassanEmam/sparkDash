@@ -22,6 +22,7 @@ import {
 import { authStatus, authorizeUpgrade, createAuthMiddleware, createHostGuardMiddleware, isLoopbackBind, setTailscaleName } from "./auth.js";
 import { inspectHealth } from "./health.js";
 import { getSettings, updateSettings, loadSettings } from "./settings.js";
+import { updateView, checkNow, requestApply } from "./appupdate.js";
 import { broadcastForLanIp, effectiveMac, normalizeMac, sendWol } from "./wol.js";
 import { remoteShutdownCommand, spawnLocalShutdown } from "./shutdown.js";
 import {
@@ -740,6 +741,37 @@ app.put("/api/settings", (req, res) => {
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
+});
+
+// ─── Self-update (host-side updater bridge, see server/appupdate.js) ───
+app.get("/api/app/update", async (req, res) => {
+  let view = updateView();
+  // Refresh a stale (or missing) status once — cheap git fetch on the host.
+  if (view.supported && (view.stale || view.current === "") && req.query.refresh !== "0") {
+    try {
+      await checkNow();
+      view = updateView();
+    } catch (err) {
+      view = { ...view, lastError: `Update check failed: ${err.message}` };
+    }
+  }
+  res.json(view);
+});
+
+app.post("/api/app/update/apply", (_req, res) => {
+  const view = updateView();
+  if (!view.supported) return res.status(400).json({ error: "Host update bridge not available" });
+  if (view.updating) return res.json({ started: false, already: true });
+  const started = requestApply();
+  if (!started) return res.status(500).json({ error: "Could not start the updater on the host" });
+  res.json({ started: true });
+});
+
+app.post("/api/app/update/dismiss", (req, res) => {
+  const view = updateView();
+  if (!view.latest) return res.status(400).json({ error: "No update version to dismiss" });
+  const newSettings = updateSettings({ updateDismissedSha: view.latest });
+  res.json({ ok: true, updateDismissedSha: newSettings.updateDismissedSha });
 });
 
 // Recent GPU utilization / temperature / power % for one Spark (parallel arrays), newest last.

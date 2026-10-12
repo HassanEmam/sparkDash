@@ -43,3 +43,4 @@ config/fleet-energy.scope-*.json
 config/*.tmp
 config/*.json.*.tmp
 auto-update.log
+config/auto-update-status.json
