@@ -16,13 +16,25 @@
 # Fail-safe by design: on any problem the running container is left untouched,
 # the failure lands in the status file (and Telegram), and the app shows it.
 set -u
-export PATH="/home/hassan/.local/bin:/usr/local/bin:/usr/bin:/bin"
+export PATH="/home/hassan/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 
 UPSTREAM_REPO="${SPARKDASH_UPSTREAM_REPO:-MiaAI-Lab/sparkDash}"
 CONTAINER="${SPARKDASH_CONTAINER:-sparkDash}"
+COMPOSE_SERVICE="${SPARKDASH_COMPOSE_SERVICE:-sparkdash}"
 
 # Resolve the repo this script lives in (works from cron and any cwd).
 REPO="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+
+# ── Never run as root: demote to the repo's owner (cron + the container's
+# nsenter bridge arrive as root; running git/npm as root would leave
+# root-owned files in the user's repo and git refuses "dubious ownership").
+if [ "$(id -u)" = "0" ]; then
+  REPO_OWNER="$(stat -c %U "$REPO" 2>/dev/null || true)"
+  if [ -n "$REPO_OWNER" ] && [ "$REPO_OWNER" != "root" ]; then
+    exec runuser -u "$REPO_OWNER" -- /bin/bash "$0" "$@"
+  fi
+fi
+
 LOG="$REPO/auto-update.log"
 STATE="$REPO/config/auto-update-status.json"
 SETTINGS="$REPO/config/settings.json"
@@ -45,8 +57,10 @@ except Exception:
     print('')
 " 2>/dev/null; }
 
-# Only one updater at a time.
-exec 9>/tmp/sparkdash-update.lock
+# Only one updater at a time. The lock lives in the repo — NOT /tmp: sticky
+# dirs + fs.protected_regular=2 make re-opening a foreign-owned /tmp file
+# fail with "bad file descriptor" even for root.
+exec 9>"$REPO/.update.lock"
 flock -n 9 || { log "another update run in progress; exiting"; exit 0; }
 
 cd "$REPO" || { log "FATAL: repo $REPO missing"; notify "repo missing at $REPO — cannot update"; exit 1; }
@@ -55,7 +69,11 @@ mkdir -p "$(dirname "$STATE")"
 current_version() { python3 -c "import json;print(json.load(open('package.json'))['version'])" 2>/dev/null || echo "0"; }
 
 # ── Check phase: find the latest published release and compare ───────────────
-LATEST_TAG="$(gh release view --repo "$UPSTREAM_REPO" --json tagName -q .tagName 2>/dev/null || true)"
+# SPARKDASH_RELEASE_TAG overrides the lookup entirely (offline/self-tests).
+LATEST_TAG="${SPARKDASH_RELEASE_TAG:-}"
+if [ -z "$LATEST_TAG" ]; then
+  LATEST_TAG="$(gh release view --repo "$UPSTREAM_REPO" --json tagName -q .tagName 2>/dev/null || true)"
+fi
 if [ -z "$LATEST_TAG" ]; then
   LATEST_TAG="$(curl -sf -m 15 "https://api.github.com/repos/$UPSTREAM_REPO/releases/latest" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin).get("tag_name",""))' 2>/dev/null || true)"
 fi
@@ -163,6 +181,7 @@ if [ "$NEW" = "$HEAD_SHA" ]; then
   write_status true false "idle" '{"ok": true, "error": ""}'
   exit 0
 fi
+PRE_REBASE_SHA="$HEAD_SHA"               # for the deps-changed check below
 log "rebased onto ${NEW:0:7} ($LATEST_TAG); installing dependencies"
 CURRENT_VERSION="$(current_version)"   # package.json now carries the release's version
 HEAD_SHA="$NEW"
@@ -184,14 +203,14 @@ fi
 
 # Rebuild the image only when dependencies changed (node_modules live in the
 # image; server code and dist are bind-mounted from the host).
-if git diff --quiet "$HEAD_SHA" "$NEW" -- package.json package-lock.json 2>/dev/null; then
+if git diff --quiet "$PRE_REBASE_SHA" "$NEW" -- package.json package-lock.json 2>/dev/null; then
   log "dependencies unchanged — plain restart"
   set_phase "restarting"
   docker restart "$CONTAINER" >/dev/null || { log "docker restart FAILED"; write_status "$HAVE_LATEST" false "failed" '{"ok": false, "error": "Container restart failed."}'; notify "update applied but the container restart failed — check docker."; exit 1; }
 else
   log "dependencies changed — rebuilding image (this can take a few minutes)"
   set_phase "rebuilding-image"
-  if docker compose build --quiet "$CONTAINER" >>"$LOG" 2>&1 && docker compose up -d --quiet-pull "$CONTAINER" >>"$LOG" 2>&1; then
+  if docker compose build --quiet "$COMPOSE_SERVICE" >>"$LOG" 2>&1 && docker compose up -d --quiet-pull "$COMPOSE_SERVICE" >>"$LOG" 2>&1; then
     log "image rebuilt + container recreated"
   else
     log "image rebuild FAILED — falling back to plain restart with old deps"

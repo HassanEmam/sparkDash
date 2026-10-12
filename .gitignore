@@ -45,3 +45,4 @@ config/*.json.*.tmp
 auto-update.log
 config/auto-update-status.json
 config/settings.json
+.update.lock

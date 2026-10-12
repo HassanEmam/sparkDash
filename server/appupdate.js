@@ -8,7 +8,7 @@
  * repo's config/ directory (bind-mounted rw into the container):
  *
  *   config/auto-update-status.json  — written by the host script, read here
- *   config/settings.json            — settings (autoUpdate, updateDismissedSha)
+ *   config/settings.json            — settings (autoUpdate, updateDismissedVersion)
  */
 import fs from "fs";
 import path from "path";
@@ -83,11 +83,16 @@ export function isStale(status) {
   return !status || !status.checkedAt || Date.now() - status.checkedAt > STALE_MS;
 }
 
-/** True when the container can reach the host (nsenter bridge + repo found). */
+/** True when the container can reach the host (nsenter bridge + repo known). */
 export function isSupported() {
   if (!HOST_REPO) return false;
   try {
-    return fs.existsSync(path.join(HOST_PROC, "1", "ns", "mnt")) && fs.existsSync(path.join(HOST_REPO, "scripts", "auto-update.sh"));
+    // NOTE: HOST_REPO lives on the HOST filesystem — it is intentionally NOT
+    // checked with fs.existsSync() here, because that would test the
+    // container's own filesystem and always fail. Once nsenter enters the
+    // host's mount namespace the path resolves there; the script itself
+    // aborts cleanly if the repo is missing.
+    return fs.existsSync(path.join(HOST_PROC, "1", "ns", "mnt"));
   } catch {
     return false;
   }

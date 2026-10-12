@@ -770,7 +770,7 @@ app.post("/api/app/update/apply", (_req, res) => {
 app.post("/api/app/update/dismiss", (req, res) => {
   const view = updateView();
   if (!view.latest) return res.status(400).json({ error: "No update version to dismiss" });
-  const newSettings = updateSettings({ updateDismissedVersion: view.latest });
+  const newSettings = updateSettings({ updateDismissedVersion: view.latestTag });
   res.json({ ok: true, updateDismissedVersion: newSettings.updateDismissedVersion });
 });
 
